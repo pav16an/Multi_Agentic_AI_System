@@ -1,372 +1,190 @@
-# 🤖 Multi-Agent Document Intelligence System
+# Multi-Agent Document Intelligence System
 
-An intelligent document analysis system powered by **3 specialized AI agents** that automatically extract summaries, action items, and risks from documents using **Groq API** and **vector search**.
+Analyze TXT, PDF, and DOCX files with three specialized agents:
+- Summary agent
+- Action-item extraction agent
+- Risk and open-issue detection agent
 
-![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Status](https://img.shields.io/badge/status-active-success.svg)
+Structured data Q&A (Text-to-SQL):
+- Upload CSV/XLSX
+- Or connect directly to a live database
+- Ask a natural-language question
+- Receive generated SQL plus a concise answer
 
----
+This version supports runtime provider selection with user-supplied API keys:
+- Groq
+- OpenAI
+- Anthropic (Claude)
 
-## 📋 Table of Contents
+## What Changed
 
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Demo Output](#-demo-output)
-- [Installation](#-installation)
-- [Usage](#-usage)
-- [Project Structure](#-project-structure)
-- [How It Works](#-how-it-works)
-- [Technologies](#-technologies)
-- [Configuration](#-configuration)
-- [Contributing](#-contributing)
-- [License](#-license)
+- Provider and model are selected per request.
+- API key is provided by the user at runtime and not stored on disk.
+- Backend now validates file type and file size.
+- Upload handling is safer (sanitized filename, random stored path).
+- Streamlit UI now includes provider/model/key controls.
+- Deployment files are included for API and UI containers.
 
----
+## Project Structure
 
-## ✨ Features
-
-- **🔍 Smart Summarization** - Extracts key points and main ideas
-- **✅ Action Item Detection** - Identifies tasks, owners, dependencies, and deadlines
-- **⚠️ Risk Analysis** - Finds risks, open questions, assumptions, and blockers
-- **📄 Multi-Format Support** - Processes TXT, PDF, and DOCX files
-- **🚀 Fast Processing** - Parallel agent execution (5-10 seconds per document)
-- **🎯 Structured Output** - Validated JSON with Pydantic schemas
-- **💰 Free to Use** - Powered by free Groq API (30 requests/min)
-- **🧠 Semantic Search** - FAISS vector store for intelligent context retrieval
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Document Input                        │
-│              (TXT / PDF / DOCX)                         │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│              Document Processor                          │
-│         (Extract & Clean Text)                          │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│              Vector Store Manager                        │
-│    • Chunk text (400 chars, 40 overlap)                │
-│    • Create embeddings (SentenceTransformer)            │
-│    • Build FAISS index                                  │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Orchestrator                            │
-│           (Parallel Agent Execution)                     │
-└─────┬───────────────┬───────────────┬───────────────────┘
-      │               │               │
-      ▼               ▼               ▼
-┌──────────┐   ┌──────────┐   ┌──────────┐
-│ Summary  │   │  Action  │   │   Risk   │
-│  Agent   │   │  Agent   │   │  Agent   │
-│          │   │          │   │          │
-│ Groq API │   │ Groq API │   │ Groq API │
-└────┬─────┘   └────┬─────┘   └────┬─────┘
-     │              │              │
-     └──────────────┼──────────────┘
-                    ▼
-┌─────────────────────────────────────────────────────────┐
-│              Aggregated Results                          │
-│         (Validated JSON Output)                         │
-└─────────────────────────────────────────────────────────┘
+```text
+Multi_Agentic_AI_System/
+|-- agents.py
+|-- api.py
+|-- app.py
+|-- document_processor.py
+|-- llm_providers.py
+|-- main.py
+|-- orchestrator.py
+|-- schemas.py
+|-- text_to_sql.py
+|-- vector_store.py
+|-- requirements.txt
+|-- .env.example
+|-- Dockerfile.api
+|-- Dockerfile.app
+|-- docker-compose.yml
 ```
 
----
+## Local Setup
 
-## 📊 Demo Output
+1. Create and activate a virtual environment.
 
-### Input Document
-```
-Project Meeting Notes - March 2024
-
-The team discussed the new customer portal redesign. Sarah will lead 
-frontend development, pending design approval by March 15th. We need 
-to finalize API specifications by March 20th.
-
-Open question: Should we use mobile-first or desktop-first approach?
-
-Risk: Current infrastructure may not handle 10,000 concurrent users. 
-John will conduct load testing after API is ready.
-
-Action items:
-1. Sarah: Begin frontend architecture (dependency: design approval)
-2. Mike: Complete API documentation by March 20th
-3. John: Set up load testing environment
+Windows PowerShell:
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-### Output
-```json
-{
-  "summary": "The team is working on a customer portal redesign with a launch target of June 1st, 2024, aiming to improve user experience and reduce support tickets by 30%. Sarah will lead frontend development pending design approval by March 15th, while Mike will complete API documentation by March 20th. The team is discussing whether to use a mobile-first or desktop-first approach, and there is a risk that the current infrastructure may not handle 10,000 concurrent users.",
-  
-  "action_items": [
-    {
-      "task": "Begin frontend architecture",
-      "owner": "Sarah",
-      "dependency": "design approval",
-      "deadline": "March 15th"
-    },
-    {
-      "task": "Complete API documentation",
-      "owner": "Mike",
-      "dependency": "None",
-      "deadline": "March 20th"
-    },
-    {
-      "task": "Set up load testing environment",
-      "owner": "John",
-      "dependency": "API ready",
-      "deadline": "Not Specified"
-    }
-  ],
-  
-  "risks_and_open_issues": [
-    {
-      "type": "Risk",
-      "description": "Current infrastructure may not handle 10,000 concurrent users"
-    },
-    {
-      "type": "Open Question",
-      "description": "Should we use mobile-first or desktop-first approach?"
-    }
-  ]
-}
-```
-
----
-
-## 🚀 Installation
-
-### Prerequisites
-- Python 3.10 or higher
-- Groq API key ([Get free key](https://console.groq.com/keys))
-
-### Step 1: Clone Repository
-```bash
-git clone https://github.com/YOUR_USERNAME/multi-agent-document-intelligence.git
-cd multi-agent-document-intelligence
-```
-
-### Step 2: Create Virtual Environment
-```bash
-python -m venv env
-```
-
-**Activate:**
-- Windows: `env\Scripts\activate`
-- Mac/Linux: `source env/bin/activate`
-
-### Step 3: Install Dependencies
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure API Key
-
-**Option A: Environment Variable (Recommended)**
+3. Run API:
 ```bash
-# Create .env file
-cp .env.example .env
-
-# Edit .env and add your key
-GROQ_API_KEY=gsk_YOUR_ACTUAL_KEY_HERE
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Option B: Direct in Code**
-Edit `agents.py` line 6:
-```python
-client = Groq(api_key="gsk_YOUR_ACTUAL_KEY_HERE")
-```
-
----
-
-## 💻 Usage
-
-### Basic Usage
+4. Run Streamlit UI:
 ```bash
-python main.py test_document.txt
+streamlit run app.py
 ```
 
-### Process Your Own Documents
+## API Usage
+
+`POST /analyze` (multipart form-data):
+- `file`: document file (`.txt`, `.pdf`, `.docx`)
+- `provider`: `groq` | `openai` | `anthropic`
+- `model`: optional model name (provider default used if empty)
+- `api_key`: provider API key
+
+Example with `curl`:
+
 ```bash
-python main.py path/to/your/document.pdf
-python main.py meeting_notes.docx
-python main.py requirements.txt
+curl -X POST "http://localhost:8000/analyze" \
+  -H "X-App-Token: YOUR_APP_TOKEN_IF_ENABLED" \
+  -F "file=@test_document.txt" \
+  -F "provider=groq" \
+  -F "model=llama-3.3-70b-versatile" \
+  -F "api_key=YOUR_KEY"
 ```
 
-### Expected Processing Time
-- Small documents (1-5 pages): 5-10 seconds
-- Medium documents (5-20 pages): 10-20 seconds
-- Large documents (20+ pages): 20-30 seconds
-
----
-
-## 📁 Project Structure
-
-```
-multi-agent-document-intelligence/
-│
-├── agents.py                 # 3 AI agents (Summary, Action, Risk)
-├── orchestrator.py           # Coordinates agents & aggregates results
-├── vector_store.py           # FAISS vector store & semantic search
-├── document_processor.py     # File loading & text preprocessing
-├── schemas.py                # Pydantic models for validation
-├── main.py                   # CLI entry point
-│
-├── requirements.txt          # Python dependencies
-├── .env.example             # Environment variable template
-├── .gitignore               # Git ignore rules
-├── README.md                # This file
-│
-└── test_document.txt        # Sample document for testing
-```
-
----
-
-## 🔧 How It Works
-
-### 1. Document Processing
-- Loads TXT, PDF, or DOCX files
-- Extracts and cleans text
-- Removes extra whitespace and formatting
-
-### 2. Semantic Chunking
-- Splits document into 400-character chunks
-- 40-character overlap to preserve context
-- Smart splitting at paragraphs/sentences
-
-### 3. Vector Indexing
-- Converts chunks to embeddings using `all-MiniLM-L6-v2`
-- Builds FAISS index for fast similarity search
-- Enables semantic retrieval (meaning-based, not keyword)
-
-### 4. Parallel Agent Execution
-- **Summary Agent**: Retrieves chunks about "summary" → Generates 3-5 sentence summary
-- **Action Agent**: Retrieves chunks about "tasks actions" → Extracts structured action items
-- **Risk Agent**: Retrieves chunks about "risks questions" → Identifies risks and blockers
-- All 3 agents run simultaneously (3x faster than sequential)
-
-### 5. Result Aggregation
-- Validates outputs with Pydantic schemas
-- Combines results into structured JSON
-- Handles errors gracefully (skips invalid items)
-
----
-
-## 🛠️ Technologies
-
-| Technology | Purpose |
-|------------|---------|
-| **Groq API** | Fast LLM inference (Llama 3.3 70B) |
-| **FAISS** | Vector similarity search |
-| **SentenceTransformers** | Text embeddings |
-| **LangChain** | Text splitting utilities |
-| **Pydantic** | Data validation |
-| **PyPDF2** | PDF processing |
-| **python-docx** | Word document processing |
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-Create `.env` file:
+Get supported providers/models:
 ```bash
-GROQ_API_KEY=gsk_your_key_here
+curl "http://localhost:8000/providers"
 ```
 
-### Customization
+## Text-to-SQL API
 
-**Adjust chunk size** (in `vector_store.py`):
-```python
-chunk_size=400      # Increase for longer context
-chunk_overlap=40    # Increase to preserve more context
+`POST /text-to-sql` (multipart form-data):
+- `file`: structured data file (`.csv`, `.xlsx`) OR
+- `db_connection_uri`: full database URI (optional alternative to separate credential fields)
+- `db_type`: `postgresql` | `mysql` (when using credential fields)
+- `db_host`: database host
+- `db_port`: database port
+- `db_name`: database name
+- `db_user`: database username
+- `db_password`: database password
+- `db_include_tables`: optional comma-separated table names for DB mode
+- `question`: natural language question
+- `provider`: `groq` | `openai` | `anthropic`
+- `model`: optional model name (provider default used if empty)
+- `api_key`: provider API key
+
+Provide exactly one source per request: `file` or database connection details.
+
+Example with `curl`:
+
+```bash
+curl -X POST "http://localhost:8000/text-to-sql" \
+  -H "X-App-Token: YOUR_APP_TOKEN_IF_ENABLED" \
+  -F "file=@sample.csv" \
+  -F "question=Top 5 customers by total revenue" \
+  -F "provider=openai" \
+  -F "model=gpt-4o-mini" \
+  -F "api_key=YOUR_KEY"
 ```
 
-**Change AI model** (in `agents.py`):
-```python
-self.model = "llama-3.3-70b-versatile"  # Or other Groq models
+Example with live database connection:
+
+```bash
+curl -X POST "http://localhost:8000/text-to-sql" \
+  -H "X-App-Token: YOUR_APP_TOKEN_IF_ENABLED" \
+  -F "db_type=postgresql" \
+  -F "db_host=localhost" \
+  -F "db_port=5432" \
+  -F "db_name=sales_db" \
+  -F "db_user=user" \
+  -F "db_password=password" \
+  -F "db_include_tables=orders,customers" \
+  -F "question=Top 5 customers by total revenue" \
+  -F "provider=openai" \
+  -F "model=gpt-4o-mini" \
+  -F "api_key=YOUR_KEY"
 ```
 
-**Modify agent prompts** (in `agents.py`):
-```python
-# Customize prompts for different extraction needs
-prompt = """Your custom prompt here..."""
+## CLI Usage
+
+```bash
+python main.py test_document.txt --provider groq --model llama-3.3-70b-versatile --api-key YOUR_KEY
 ```
 
----
+You can also omit `--api-key` and set one of:
+- `GROQ_API_KEY`
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
 
-## 📈 Performance
+## Deployment with Docker Compose
 
-- **Speed**: 5-10 seconds per document
-- **Accuracy**: 90-95% (depends on document quality)
-- **Cost**: $0.00 (free Groq API)
-- **Rate Limit**: 30 requests/minute (free tier)
-- **Supported Files**: TXT, PDF, DOCX
-- **Max Document Size**: ~50 pages (recommended)
+1. Build and run:
+```bash
+docker compose up --build
+```
 
----
+2. Services:
+- API: `http://localhost:8000`
+- UI: `http://localhost:8501`
 
-## 🤝 Contributing
+UI calls API via `BACKEND_URL` (configured in `docker-compose.yml`).
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## Environment Variables
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+See `.env.example` for deploy configuration:
+- `CORS_ORIGINS`
+- `MAX_FILE_SIZE_MB`
+- `RATE_LIMIT_PER_MIN`
+- `APP_AUTH_TOKEN`
+- `REDIS_URL` (optional, enables distributed rate limiting)
+- `ENABLE_CLEANUP_ENDPOINT`
+- `BACKEND_URL` (UI runtime)
 
----
+## Security Notes
 
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- **Groq** for providing free, fast LLM API
-- **Facebook AI** for FAISS vector search
-- **Sentence Transformers** for embedding models
-- **LangChain** for text processing utilities
-
----
-
-## 📧 Contact
-
-**Your Name** - [@your_twitter](https://twitter.com/your_twitter)
-
-Project Link: [https://github.com/YOUR_USERNAME/multi-agent-document-intelligence](https://github.com/YOUR_USERNAME/multi-agent-document-intelligence)
-
----
-
-## 🎯 Future Enhancements
-
-- [ ] Web UI with Streamlit
-- [ ] REST API with FastAPI
-- [ ] Docker containerization
-- [ ] Batch processing for multiple files
-- [ ] Database storage for results
-- [ ] Authentication & user management
-- [ ] Support for more file formats (Excel, CSV)
-- [ ] Custom agent creation
-- [ ] Real-time streaming results
-
----
-
-**⭐ If you find this project helpful, please give it a star!**
-#   m u l t i - a g e n t - d o c u m e n t - i n t e l l i g e n c e  
- 
+- API keys are passed per request and are not persisted.
+- Optional API gateway token is supported via `X-App-Token` (`APP_AUTH_TOKEN`).
+- Rate limiting is enabled (`RATE_LIMIT_PER_MIN`), using Redis when `REDIS_URL` is set, otherwise in-memory fallback.
+- File type and size are validated.
+- Uploaded temporary files are deleted after processing.
+- SQL generation is restricted to read-only queries (`SELECT` / `WITH ... SELECT`).
+- Cleanup endpoint is disabled by default in production (`ENABLE_CLEANUP_ENDPOINT=false`).
