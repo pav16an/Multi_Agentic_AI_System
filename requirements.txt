@@ -20,3 +20,5 @@ anthropic>=0.34.0
 faiss-cpu>=1.12.0
 langchain==0.1.9
 langchain-community==0.0.24
+
+
