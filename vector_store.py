@@ -1,8 +1,12 @@
 from typing import List
 import numpy as np
 import faiss
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
+
+try:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+except Exception:  # pragma: no cover - optional dependency fallback
+    RecursiveCharacterTextSplitter = None
 
 _EMBEDDING_MODEL = None
 
@@ -12,6 +16,30 @@ def _get_embedding_model():
     if _EMBEDDING_MODEL is None:
         _EMBEDDING_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
     return _EMBEDDING_MODEL
+
+
+def _split_text_fallback(
+    text: str,
+    *,
+    chunk_size: int = 400,
+    chunk_overlap: int = 40,
+) -> List[str]:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return []
+
+    chunks: List[str] = []
+    start = 0
+    text_len = len(cleaned)
+    while start < text_len:
+        end = min(start + chunk_size, text_len)
+        chunk = cleaned[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= text_len:
+            break
+        start = max(end - chunk_overlap, start + 1)
+    return chunks
 
 
 class VectorStoreManager:
@@ -26,10 +54,18 @@ class VectorStoreManager:
             self.chunks = []
             return self.chunks
 
+        if RecursiveCharacterTextSplitter is None:
+            self.chunks = _split_text_fallback(
+                text,
+                chunk_size=400,
+                chunk_overlap=40,
+            )
+            return self.chunks
+
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=400,
             chunk_overlap=40,
-            separators=["\n\n", "\n", ". ", " "]
+            separators=["\n\n", "\n", ". ", " "],
         )
         self.chunks = splitter.split_text(text)
         return self.chunks
