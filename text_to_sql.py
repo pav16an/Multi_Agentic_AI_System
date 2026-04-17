@@ -19,34 +19,9 @@ _SQL_FORBIDDEN = re.compile(
     re.IGNORECASE,
 )
 _QUESTION_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "by",
-    "for",
-    "from",
-    "how",
-    "in",
-    "is",
-    "last",
-    "list",
-    "many",
-    "month",
-    "of",
-    "on",
-    "or",
-    "show",
-    "the",
-    "this",
-    "to",
-    "top",
-    "what",
-    "which",
-    "with",
-    "year",
+    "a", "an", "and", "are", "as", "at", "by", "for", "from", "how", "in", "is",
+    "last", "list", "many", "month", "of", "on", "or", "show", "the", "this",
+    "to", "top", "what", "which", "with", "year",
 }
 
 
@@ -77,7 +52,8 @@ def _dtype_to_sql(dtype) -> str:
 def _extract_sql(text: str) -> str:
     if not text:
         return ""
-    fenced = re.search(r"```(?:sql)?\s*(.*?)```", text, re.IGNORECASE | re.DOTALL)
+    # Using `{3}` instead of three backticks to prevent markdown parser issues
+    fenced = re.search(r"`{3}(?:sql)?\s*(.*?)`{3}", text, re.IGNORECASE | re.DOTALL)
     if fenced:
         return fenced.group(1).strip()
     if "sql:" in text.lower():
@@ -148,7 +124,6 @@ def _table_relevance_score(
             matched_columns += 1
             score += 2 + len(overlap) * 3
 
-    # Light boost for coverage so table candidates with multiple relevant columns surface higher.
     score += min(matched_columns, 5)
     return score
 
@@ -158,7 +133,8 @@ def _extract_string_list(text: str) -> List[str]:
         return []
 
     candidate = text.strip()
-    fenced = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.IGNORECASE | re.DOTALL)
+    # Using `{3}` instead of three backticks
+    fenced = re.search(r"`{3}(?:json)?\s*(\[.*?\])\s*`{3}", text, re.IGNORECASE | re.DOTALL)
     if fenced:
         candidate = fenced.group(1).strip()
     else:
@@ -338,9 +314,7 @@ class DatabaseDataProcessor:
             selected_tables = include_tables or all_tables
             missing = sorted(set(selected_tables) - set(all_tables))
             if missing:
-                warnings.append(
-                    "Ignored missing tables: " + ", ".join(missing)
-                )
+                warnings.append("Ignored missing tables: " + ", ".join(missing))
                 selected_tables = [name for name in selected_tables if name in all_tables]
 
             if not selected_tables:
@@ -719,7 +693,7 @@ class TextToSQLService:
         finally:
             engine.dispose()
 
-   def _generate_sql(
+    def _generate_sql(
         self,
         *,
         question: str,
@@ -773,7 +747,7 @@ class TextToSQLService:
         raw_rows = cursor.fetchmany(max_rows)
         return [dict(zip(columns, row)) for row in raw_rows], columns
 
-   def _generate_sql_for_database(
+    def _generate_sql_for_database(
         self,
         *,
         question: str,
@@ -789,7 +763,6 @@ class TextToSQLService:
             
             # --- NEW CSV CONVERSION ---
             if table.sample_rows:
-                # Convert the list of dicts to a highly compressed CSV string
                 csv_string = pd.DataFrame(table.sample_rows).to_csv(index=False).strip()
                 sample_csv_lines.append(f"Table: {table.name}\n{csv_string}\n")
             else:
@@ -840,11 +813,17 @@ class TextToSQLService:
         rows: List[Dict[str, object]],
         api_key: str,
     ) -> str:
+        # --- NEW CODE: Prevent Token Limit Crash ---
+        max_summary_rows = 10
+        summary_rows = rows[:max_summary_rows]
+        truncation_note = f"\n(Note: Only showing {max_summary_rows} out of {len(rows)} rows to save tokens.)" if len(rows) > max_summary_rows else ""
+        # -------------------------------------------
+
         prompt = (
             "You are a helpful data assistant. Answer the question using the SQL result.\n\n"
             f"Question: {question}\n"
             f"SQL: {sql}\n"
-            f"Rows (JSON): {json.dumps(rows, ensure_ascii=False)}\n\n"
+            f"Rows (JSON): {json.dumps(summary_rows, ensure_ascii=False)}{truncation_note}\n\n"
             "Answer concisely in plain text."
         )
         response = self.llm_provider.complete(
