@@ -719,7 +719,7 @@ class TextToSQLService:
         finally:
             engine.dispose()
 
-    def _generate_sql(
+   def _generate_sql(
         self,
         *,
         question: str,
@@ -733,17 +733,25 @@ class TextToSQLService:
         mapping_lines = "\n".join(
             f"- {original} -> {sanitized}" for original, sanitized in column_mapping.items()
         )
+        
+        # --- NEW CSV CONVERSION ---
+        if sample_rows:
+            sample_csv_str = pd.DataFrame(sample_rows).to_csv(index=False).strip()
+        else:
+            sample_csv_str = "(No sample data)"
+
         prompt = (
             "You are a data analyst. Convert the question into a single SQLite SELECT "
             "query using only the provided schema. Do not use any write operations.\n\n"
             f"Table: {table_name}\nColumns:\n{schema_lines}\n\n"
             f"Column name mapping (original -> sanitized):\n{mapping_lines}\n\n"
-            "Sample rows (JSON):\n"
-            f"{json.dumps(sample_rows, ensure_ascii=False)}\n\n"
+            "Sample rows (CSV format):\n"
+            f"{sample_csv_str}\n\n"
             "Rules:\n"
             "- Output only SQL, no markdown, no explanations.\n"
             "- Use the table name exactly as provided.\n"
-            "- If filtering by text, use LIKE with % wildcards.\n\n"
+            "- If filtering by text, use LIKE with % wildcards.\n"
+            "- IMPORTANT: If the question implies counting, totaling, or averaging, ALWAYS use SQL aggregations (COUNT, SUM, AVG) so the query returns a single numerical result rather than raw rows.\n\n"
             f"Question: {question}\nSQL:"
         )
         response = self.llm_provider.complete(
@@ -765,7 +773,7 @@ class TextToSQLService:
         raw_rows = cursor.fetchmany(max_rows)
         return [dict(zip(columns, row)) for row in raw_rows], columns
 
-    def _generate_sql_for_database(
+   def _generate_sql_for_database(
         self,
         *,
         question: str,
@@ -773,23 +781,34 @@ class TextToSQLService:
         api_key: str,
     ) -> str:
         schema_lines = []
-        sample_payload: Dict[str, List[Dict[str, object]]] = {}
+        sample_csv_lines = []
+        
         for table in tables:
             columns = ", ".join(f"{name} ({dtype})" for name, dtype in table.schema)
             schema_lines.append(f"- {table.name}: {columns}")
-            sample_payload[table.name] = table.sample_rows
+            
+            # --- NEW CSV CONVERSION ---
+            if table.sample_rows:
+                # Convert the list of dicts to a highly compressed CSV string
+                csv_string = pd.DataFrame(table.sample_rows).to_csv(index=False).strip()
+                sample_csv_lines.append(f"Table: {table.name}\n{csv_string}\n")
+            else:
+                sample_csv_lines.append(f"Table: {table.name}\n(No sample data)\n")
+
+        sample_payload_str = "\n".join(sample_csv_lines)
 
         prompt = (
             "You are a data analyst. Convert the question into a single SQL query.\n\n"
             "Database tables and columns:\n"
             f"{chr(10).join(schema_lines)}\n\n"
-            "Sample rows per table (JSON):\n"
-            f"{json.dumps(sample_payload, ensure_ascii=False)}\n\n"
+            "Sample rows per table (CSV format):\n"
+            f"{sample_payload_str}\n\n"
             "Rules:\n"
             "- Output only SQL, no markdown, no explanations.\n"
             "- Use only tables and columns listed above.\n"
             "- Generate a read-only query (SELECT or WITH ... SELECT).\n"
-            "- If filtering text, use LIKE with % wildcards.\n\n"
+            "- If filtering text, use LIKE with % wildcards.\n"
+            "- IMPORTANT: If the question implies counting, totaling, or averaging, ALWAYS use SQL aggregations (COUNT, SUM, AVG) so the query returns a single numerical result rather than raw rows.\n\n"
             f"Question: {question}\nSQL:"
         )
         response = self.llm_provider.complete(
