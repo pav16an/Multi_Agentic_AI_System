@@ -168,6 +168,13 @@ docker compose up --build
 
 UI calls API via `BACKEND_URL` (configured in `docker-compose.yml`).
 
+## Free Cloud Deployment
+
+For the current repo structure, the easiest free deployment target is **Render** because this project already includes separate Dockerfiles for the API and Streamlit app.
+
+- Added `render.yaml` for Render Blueprint deployment
+- See `DEPLOYMENT_GUIDE.md` for the full step-by-step guide
+
 ## Environment Variables
 
 See `.env.example` for deploy configuration:

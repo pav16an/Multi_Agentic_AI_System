@@ -1,0 +1,35 @@
+services:
+  - name: multi-agentic-ai-api
+    type: web
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile.api
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: MAX_FILE_SIZE_MB
+        value: "10"
+      - key: RATE_LIMIT_PER_MIN
+        value: "60"
+      - key: ENABLE_CLEANUP_ENDPOINT
+        value: "false"
+      - key: REDIS_URL
+        value: ""
+
+  - name: multi-agentic-ai-app
+    type: web
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile.app
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: BACKEND_URL
+        fromService:
+          type: web
+          name: multi-agentic-ai-api
+          property: hostport
