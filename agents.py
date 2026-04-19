@@ -71,11 +71,20 @@ def _normalize_risk_type(value: str) -> str:
 
 
 class BaseAgent:
-    def __init__(self, name: str, role_prompt: str, llm_provider: LLMProvider, model: str):
+    def __init__(
+        self,
+        name: str,
+        role_prompt: str,
+        llm_provider: LLMProvider,
+        model: str,
+        *,
+        max_tokens: int = 1000,
+    ):
         self.name = name
         self.role_prompt = role_prompt
         self.llm_provider = llm_provider
         self.model = model
+        self.max_tokens = max_tokens
     
     def execute(self, context: List[str], api_key: str):
         context_text = "\n\n".join(
@@ -88,7 +97,7 @@ class BaseAgent:
             model=self.model,
             api_key=api_key,
             temperature=0,
-            max_tokens=1000,
+            max_tokens=self.max_tokens,
         )
         
         return self._parse_response(response)
@@ -124,7 +133,7 @@ Rules:
 {context}
 
 Summary:"""
-        super().__init__("summary", prompt, llm_provider, model)
+        super().__init__("summary", prompt, llm_provider, model, max_tokens=320)
     
     def _parse_response(self, response: str):
         return _normalize_summary_text(response)
@@ -151,7 +160,7 @@ Return ONLY the JSON array, nothing else.
 Format: [{{"task":"...", "owner":"...", "dependency":"...", "deadline":"..."}}]
 
 JSON:"""
-        super().__init__("action", prompt, llm_provider, model)
+        super().__init__("action", prompt, llm_provider, model, max_tokens=650)
     
     def _parse_response(self, response: str):
         parsed = _extract_json_array(response)
@@ -198,7 +207,7 @@ Return ONLY the JSON array, nothing else.
 Format: [{{"type":"Risk", "description":"..."}}]
 
 JSON:"""
-        super().__init__("risk", prompt, llm_provider, model)
+        super().__init__("risk", prompt, llm_provider, model, max_tokens=750)
     
     def _parse_response(self, response: str):
         parsed = _extract_json_array(response)

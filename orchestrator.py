@@ -12,53 +12,97 @@ from llm_providers import LLMProvider
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+DIRECT_ANALYSIS_CHAR_THRESHOLD = 6000
+DIRECT_ANALYSIS_CONTEXT_CHARS = 1800
+DIRECT_ANALYSIS_MAX_SEGMENTS = 3
+
 class Orchestrator:
     def __init__(self, llm_provider: LLMProvider, model: str):
         self.llm_provider = llm_provider
         self.model = model
-        self.vector_store = VectorStoreManager()
+        self.vector_store: VectorStoreManager | None = None
         self.summary_agent = SummaryAgent(llm_provider, model)
         self.action_agent = ActionAgent(llm_provider, model)
         self.risk_agent = RiskAgent(llm_provider, model)
+
+    def _get_vector_store(self) -> VectorStoreManager:
+        if self.vector_store is None:
+            self.vector_store = VectorStoreManager()
+        return self.vector_store
+
+    def _build_direct_context(self, text: str) -> list[str]:
+        normalized = (text or "").strip()
+        if not normalized:
+            return []
+
+        if len(normalized) <= DIRECT_ANALYSIS_CONTEXT_CHARS:
+            return [normalized]
+
+        segment_size = min(
+            DIRECT_ANALYSIS_CONTEXT_CHARS,
+            max(600, len(normalized) // DIRECT_ANALYSIS_MAX_SEGMENTS),
+        )
+        starts = [
+            0,
+            max((len(normalized) - segment_size) // 2, 0),
+            max(len(normalized) - segment_size, 0),
+        ]
+
+        segments: list[str] = []
+        seen = set()
+        for start in starts:
+            segment = normalized[start : start + segment_size].strip()
+            if segment and segment not in seen:
+                seen.add(segment)
+                segments.append(segment)
+        return segments or [normalized[:DIRECT_ANALYSIS_CONTEXT_CHARS]]
     
     def process_document(self, text: str, api_key: str) -> DocumentAnalysisOutput:
         if not text or not text.strip():
             raise ValueError("Document is empty after preprocessing.")
 
         logger.info("Processing...")
-        
-        chunks = self.vector_store.create_chunks(text)
-        if not chunks:
-            raise ValueError("Document does not contain enough text to analyze.")
 
-        self.vector_store.build_index()
+        stripped_text = text.strip()
+        if len(stripped_text) <= DIRECT_ANALYSIS_CHAR_THRESHOLD:
+            direct_context = self._build_direct_context(stripped_text)
+            summary_context = direct_context
+            action_context = direct_context
+            risk_context = direct_context
+        else:
+            vector_store = self._get_vector_store()
+            chunks = vector_store.create_chunks(stripped_text)
+            if not chunks:
+                raise ValueError("Document does not contain enough text to analyze.")
 
-        summary_context = self._collect_context(
-            queries=[
-                "summary objective outcomes key decisions",
-                "main conclusions and commitments",
-                "deadlines deliverables owners risks",
-            ],
-            k_per_query=4,
-            max_chunks=8,
-        )
-        action_context = self._collect_context(
-            queries=[
-                "tasks action items owner deadline dependency",
-                "next steps responsibilities due dates",
-            ],
-            k_per_query=4,
-            max_chunks=8,
-        )
-        risk_context = self._collect_context(
-            queries=[
-                "risks blockers constraints dependencies",
-                "open questions assumptions missing information",
-                "uncertainty issues concerns",
-            ],
-            k_per_query=4,
-            max_chunks=8,
-        )
+            vector_store.build_index()
+
+            summary_context = self._collect_context(
+                queries=[
+                    "summary objective outcomes key decisions",
+                    "main conclusions and commitments",
+                    "deadlines deliverables owners risks",
+                ],
+                k_per_query=3,
+                max_chunks=6,
+            )
+            action_context = self._collect_context(
+                queries=[
+                    "tasks action items owner deadline dependency",
+                    "next steps responsibilities due dates",
+                ],
+                k_per_query=3,
+                max_chunks=6,
+            )
+            risk_context = self._collect_context(
+                queries=[
+                    "risks blockers constraints dependencies",
+                    "open questions assumptions missing information",
+                    "uncertainty issues concerns",
+                ],
+                k_per_query=3,
+                max_chunks=6,
+            )
         
         results = {}
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -87,11 +131,12 @@ class Orchestrator:
         k_per_query: int = 4,
         max_chunks: int = 8,
     ) -> list[str]:
+        vector_store = self._get_vector_store()
         seen = set()
         collected: list[str] = []
 
         for query in queries:
-            for chunk in self.vector_store.retrieve_context(query, k=k_per_query):
+            for chunk in vector_store.retrieve_context(query, k=k_per_query):
                 key = (chunk or "").strip()
                 if key and key not in seen:
                     seen.add(key)
@@ -102,8 +147,8 @@ class Orchestrator:
                 break
 
         # Ensure document-level coverage for long docs.
-        if self.vector_store.chunks:
-            for edge_chunk in (self.vector_store.chunks[0], self.vector_store.chunks[-1]):
+        if vector_store.chunks:
+            for edge_chunk in (vector_store.chunks[0], vector_store.chunks[-1]):
                 key = (edge_chunk or "").strip()
                 if key and key not in seen:
                     seen.add(key)
@@ -112,7 +157,7 @@ class Orchestrator:
                     break
 
         if not collected:
-            return self.vector_store.chunks[: min(max_chunks, len(self.vector_store.chunks))]
+            return vector_store.chunks[: min(max_chunks, len(vector_store.chunks))]
         return collected[:max_chunks]
 
     @staticmethod
@@ -194,11 +239,12 @@ class Orchestrator:
         if not normalized_question:
             raise ValueError("Question is required for document chat.")
 
-        chunks = self.vector_store.create_chunks(text)
+        vector_store = self._get_vector_store()
+        chunks = vector_store.create_chunks(text)
         if not chunks:
             raise ValueError("Document does not contain enough text to answer questions.")
 
-        self.vector_store.build_index()
+        vector_store.build_index()
         return self._answer_document_question_with_index(
             question=normalized_question,
             api_key=api_key,
@@ -215,7 +261,8 @@ class Orchestrator:
         normalized_question = (question or "").strip()
         if not normalized_question:
             raise ValueError("Question is required for document chat.")
-        if not self.vector_store.chunks or self.vector_store.index is None:
+        vector_store = self._get_vector_store()
+        if not vector_store.chunks or vector_store.index is None:
             raise ValueError("Document chat context is not initialized.")
 
         return self._answer_document_question_with_index(
