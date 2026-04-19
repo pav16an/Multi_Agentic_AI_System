@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import time
 from typing import Dict, List, Optional
 
 import requests
@@ -9,6 +10,10 @@ import streamlit as st
 
 DEFAULT_BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 DEFAULT_APP_ACCESS_TOKEN = os.getenv("APP_AUTH_TOKEN", "")
+BACKEND_HEALTH_TIMEOUT_SEC = int(os.getenv("BACKEND_HEALTH_TIMEOUT_SEC", "20"))
+BACKEND_REQUEST_TIMEOUT_SEC = int(os.getenv("BACKEND_REQUEST_TIMEOUT_SEC", "180"))
+BACKEND_REQUEST_RETRIES = int(os.getenv("BACKEND_REQUEST_RETRIES", "2"))
+BACKEND_RETRY_DELAY_SEC = float(os.getenv("BACKEND_RETRY_DELAY_SEC", "5"))
 FALLBACK_PROVIDER_CONFIG = {
     "providers": ["groq", "openai", "anthropic"],
     "default_models": {
@@ -45,6 +50,35 @@ def _auth_headers(app_access_token: str) -> Dict[str, str]:
     return {"X-App-Token": token}
 
 
+def _request_backend(
+    method: str,
+    url: str,
+    app_access_token: str,
+    timeout: int,
+    **kwargs,
+) -> requests.Response:
+    headers = kwargs.pop("headers", {})
+    request_headers = {**headers, **_auth_headers(app_access_token)}
+    last_error: requests.RequestException | None = None
+
+    for attempt in range(BACKEND_REQUEST_RETRIES + 1):
+        try:
+            return requests.request(
+                method=method,
+                url=url,
+                timeout=timeout,
+                headers=request_headers,
+                **kwargs,
+            )
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt >= BACKEND_REQUEST_RETRIES:
+                raise
+            time.sleep(BACKEND_RETRY_DELAY_SEC)
+
+    raise last_error  # pragma: no cover
+
+
 def _extract_error_message(response: requests.Response) -> str:
     try:
         payload = response.json()
@@ -67,10 +101,11 @@ def _document_id(file_name: str, file_bytes: bytes) -> str:
 
 def _load_provider_config(base_url: str, app_access_token: str) -> Dict[str, object]:
     try:
-        response = requests.get(
+        response = _request_backend(
+            "GET",
             f"{base_url}/providers",
-            timeout=8,
-            headers=_auth_headers(app_access_token),
+            app_access_token=app_access_token,
+            timeout=BACKEND_HEALTH_TIMEOUT_SEC,
         )
         if response.status_code == 200:
             return response.json()
@@ -81,10 +116,11 @@ def _load_provider_config(base_url: str, app_access_token: str) -> Dict[str, obj
 
 def _fetch_health(base_url: str, app_access_token: str) -> Optional[Dict[str, object]]:
     try:
-        response = requests.get(
+        response = _request_backend(
+            "GET",
             f"{base_url}/health",
-            timeout=6,
-            headers=_auth_headers(app_access_token),
+            app_access_token=app_access_token,
+            timeout=BACKEND_HEALTH_TIMEOUT_SEC,
         )
         if response.status_code == 200:
             return response.json()
@@ -542,9 +578,9 @@ with tab_doc:
             st.error("Upload a document before running analysis.")
         elif not user_api_key.strip():
             st.error("Enter your API key for the selected provider.")
-        elif not health:
-            st.error("Backend is not reachable. Start API and try again.")
         else:
+            if not health:
+                st.warning("Backend health check failed. Trying the request anyway in case the service is waking up.")
             model_to_use = (custom_model or selected_model or "").strip()
             file_bytes = uploaded_file.getvalue()
             payload = {
@@ -562,12 +598,13 @@ with tab_doc:
             progress = st.progress(5, text="Preparing analysis...")
             try:
                 progress.progress(25, text="Uploading document...")
-                response = requests.post(
+                response = _request_backend(
+                    "POST",
                     f"{base_url}/analyze",
+                    app_access_token=app_access_token,
+                    timeout=BACKEND_REQUEST_TIMEOUT_SEC,
                     data=payload,
                     files=files,
-                    timeout=180,
-                    headers=_auth_headers(app_access_token),
                 )
                 progress.progress(80, text="Processing response...")
                 if response.status_code != 200:
@@ -698,9 +735,11 @@ with tab_doc:
 
             if not api_key:
                 st.error("API key is missing. Re-run analysis with a valid API key.")
-            elif not health:
-                st.error("Backend is not reachable. Start API and try again.")
             else:
+                if not health:
+                    st.warning(
+                        "Backend health check failed. Trying the request anyway in case the service is waking up."
+                    )
                 messages.append({"role": "user", "content": followup_question.strip()})
                 threads[doc_id] = messages
                 st.session_state["doc_chat_threads"] = threads
@@ -719,8 +758,6 @@ with tab_doc:
                     try:
                         request_kwargs = {
                             "data": payload,
-                            "timeout": 180,
-                            "headers": _auth_headers(app_access_token),
                         }
                         if send_file:
                             request_kwargs["files"] = {
@@ -731,8 +768,11 @@ with tab_doc:
                                 )
                             }
 
-                        response = requests.post(
+                        response = _request_backend(
+                            "POST",
                             f"{base_url}/document-chat",
+                            app_access_token=app_access_token,
+                            timeout=BACKEND_REQUEST_TIMEOUT_SEC,
                             **request_kwargs,
                         )
                         if response.status_code != 200 and not send_file:
@@ -746,8 +786,11 @@ with tab_doc:
                                         "application/octet-stream",
                                     )
                                 }
-                                response = requests.post(
+                                response = _request_backend(
+                                    "POST",
                                     f"{base_url}/document-chat",
+                                    app_access_token=app_access_token,
+                                    timeout=BACKEND_REQUEST_TIMEOUT_SEC,
                                     **retry_kwargs,
                                 )
                         if response.status_code != 200:
@@ -898,8 +941,6 @@ with tab_sql:
             st.error("Enter your API key.")
         elif not sql_question.strip():
             st.error("Enter a question.")
-        elif not health:
-            st.error("Backend is not reachable.")
         elif sql_source_mode == "File Upload" and structured_file is None:
             st.error("Upload a CSV/XLSX file.")
         elif sql_source_mode == "Database Connection" and (
@@ -907,6 +948,8 @@ with tab_sql:
         ):
             st.error("Enter host, database, username, and password.")
         else:
+            if not health:
+                st.warning("Backend health check failed. Trying the request anyway in case the service is waking up.")
             sql_model_to_use = (sql_custom_model or sql_selected_model or "").strip()
             payload = {
                 "provider": sql_provider,
@@ -914,7 +957,7 @@ with tab_sql:
                 "api_key": sql_api_key.strip(),
                 "question": sql_question.strip(),
             }
-            request_kwargs = {"data": payload, "timeout": 180}
+            request_kwargs = {"data": payload}
             if sql_source_mode == "File Upload":
                 request_kwargs["files"] = {
                     "file": (
@@ -935,10 +978,12 @@ with tab_sql:
             progress = st.progress(5, text="Preparing request...")
             try:
                 progress.progress(25, text="Sending data...")
-                response = requests.post(
+                response = _request_backend(
+                    "POST",
                     f"{base_url}/text-to-sql",
+                    app_access_token=app_access_token,
+                    timeout=BACKEND_REQUEST_TIMEOUT_SEC,
                     **request_kwargs,
-                    headers=_auth_headers(app_access_token),
                 )
                 progress.progress(80, text="Processing response...")
                 if response.status_code != 200:
