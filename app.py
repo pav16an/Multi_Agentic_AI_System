@@ -1,4 +1,5 @@
 import hashlib
+from html import escape
 import json
 import os
 import time
@@ -204,6 +205,92 @@ def _clear_workspace_state() -> None:
     st.session_state["sql_last_file"] = "sql_output.json"
 
 
+def _html_text(value: object) -> str:
+    return escape(str(value or "")).replace("\n", "<br>")
+
+
+def _render_stat_strip(cards: List[Dict[str, str]]) -> None:
+    tiles = []
+    for card in cards:
+        tone = card.get("tone", "neutral")
+        tiles.append(
+            f"""
+<div class="stat-tile tone-{tone}">
+  <p class="stat-label">{_html_text(card.get("label", ""))}</p>
+  <p class="stat-value">{_html_text(card.get("value", ""))}</p>
+  <p class="stat-caption">{_html_text(card.get("caption", ""))}</p>
+</div>
+"""
+        )
+    st.markdown(f'<div class="stat-strip">{"".join(tiles)}</div>', unsafe_allow_html=True)
+
+
+def _render_signal_panel(title: str, subtitle: str, items: List[Dict[str, str]]) -> None:
+    cards = []
+    for item in items:
+        cards.append(
+            f"""
+<div class="signal-card">
+  <p class="signal-title">{_html_text(item.get("title", ""))}</p>
+  <p class="signal-body">{_html_text(item.get("body", ""))}</p>
+</div>
+"""
+        )
+    st.markdown(
+        f"""
+<section class="signal-panel">
+  <div class="signal-header">
+    <p class="eyebrow">{_html_text(title)}</p>
+    <h3>{_html_text(subtitle)}</h3>
+  </div>
+  <div class="signal-grid">{"".join(cards)}</div>
+</section>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_selection_summary(title: str, items: List[Dict[str, str]], footer: str = "") -> None:
+    segments = []
+    for item in items:
+        segments.append(
+            f"""
+<div class="summary-segment">
+  <p class="summary-key">{_html_text(item.get("label", ""))}</p>
+  <p class="summary-value">{_html_text(item.get("value", ""))}</p>
+</div>
+"""
+        )
+    footer_html = f'<p class="summary-footer">{_html_text(footer)}</p>' if footer else ""
+    st.markdown(
+        f"""
+<div class="selection-summary">
+  <div class="selection-summary-head">
+    <span class="live-dot"></span>
+    <span>{_html_text(title)}</span>
+  </div>
+  <div class="selection-summary-grid">{"".join(segments)}</div>
+  {footer_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_highlight_card(title: str, body: str, meta: str = "") -> None:
+    meta_html = f'<p class="highlight-meta">{_html_text(meta)}</p>' if meta else ""
+    st.markdown(
+        f"""
+<div class="highlight-card">
+  <p class="eyebrow">{_html_text(title)}</p>
+  <div class="highlight-body">{_html_text(body)}</div>
+  {meta_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 st.set_page_config(page_title="Document Agent Studio", page_icon="DA", layout="wide")
 _ensure_state()
 
@@ -211,31 +298,33 @@ st.markdown(
     """
 <style>
 :root {
-  --bg: #070a1a;
-  --surface: rgba(16, 24, 58, 0.78);
-  --surface-2: rgba(10, 16, 44, 0.88);
-  --ink: #eef2ff;
-  --muted: #aab6e9;
-  --line: rgba(136, 151, 255, 0.28);
-  --brand: #4b63ff;
-  --brand-2: #6b7fff;
-  --ok: #2fca9c;
-  --warn: #ffad66;
+  --bg: #07131c;
+  --surface: rgba(12, 23, 32, 0.88);
+  --surface-2: rgba(16, 30, 41, 0.92);
+  --surface-3: rgba(22, 40, 54, 0.9);
+  --ink: #ecf7ff;
+  --muted: #98b2c7;
+  --line: rgba(132, 166, 189, 0.22);
+  --brand: #17c4b5;
+  --brand-2: #78e6d8;
+  --accent: #ffb84d;
+  --ok: #43d39e;
+  --warn: #ffb84d;
+  --danger: #ff7c70;
+  --shadow: 0 18px 40px rgba(1, 8, 14, 0.38);
 }
 
 .stApp {
   background:
-    radial-gradient(circle at 4% 8%, rgba(112, 130, 255, 0.32), transparent 24%),
-    radial-gradient(circle at 95% 95%, rgba(69, 90, 220, 0.26), transparent 28%),
-    linear-gradient(118deg, #080d29 0%, #060915 42%, #070a1a 100%),
-    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
-  background-size: auto, auto, auto, 56px 56px, 56px 56px;
+    radial-gradient(circle at 12% 10%, rgba(23, 196, 181, 0.22), transparent 26%),
+    radial-gradient(circle at 90% 12%, rgba(255, 184, 77, 0.16), transparent 24%),
+    radial-gradient(circle at 82% 88%, rgba(69, 211, 158, 0.12), transparent 22%),
+    linear-gradient(135deg, #08131c 0%, #091722 36%, #061017 100%);
   color: var(--ink);
 }
 
 [data-testid="stHeader"] {
-  background: linear-gradient(90deg, rgba(6, 11, 35, 0.98) 0%, rgba(4, 8, 24, 0.98) 100%);
+  background: linear-gradient(90deg, rgba(7, 16, 23, 0.96) 0%, rgba(9, 21, 31, 0.96) 100%);
   border-bottom: 1px solid var(--line);
   position: sticky;
 }
@@ -246,21 +335,21 @@ st.markdown(
   left: 54px;
   top: 50%;
   transform: translateY(-50%);
-  color: #dce4ff;
+  color: #e8fbf8;
   font-size: 0.96rem;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   pointer-events: none;
 }
 
 .block-container {
-  max-width: 1240px;
-  padding-top: 1rem;
-  padding-bottom: 2rem;
+  max-width: 1280px;
+  padding-top: 1.15rem;
+  padding-bottom: 2.5rem;
 }
 
 [data-testid="stSidebar"] {
-  background: linear-gradient(180deg, rgba(6, 11, 35, 0.96) 0%, rgba(4, 8, 24, 0.98) 100%);
+  background: linear-gradient(180deg, rgba(7, 16, 23, 0.96) 0%, rgba(9, 21, 31, 0.98) 100%);
   border-right: 1px solid var(--line);
 }
 
@@ -270,142 +359,253 @@ st.markdown(
   color: var(--ink) !important;
 }
 
+.workspace-panel,
 .page-header {
   border: 1px solid var(--line);
-  background: linear-gradient(145deg, rgba(23, 35, 84, 0.76) 0%, rgba(10, 16, 42, 0.85) 100%);
-  backdrop-filter: blur(5px);
-  box-shadow: 0 16px 32px rgba(4, 8, 28, 0.34);
-  border-radius: 18px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
+  background: linear-gradient(160deg, rgba(13, 25, 35, 0.92) 0%, rgba(17, 33, 45, 0.9) 100%);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  border-radius: 24px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  position: relative;
+}
+
+.workspace-panel::after,
+.page-header::after,
+.step-card::after,
+.chat-wrap::after,
+.highlight-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(120, 230, 216, 0.1), transparent 40%, rgba(255, 184, 77, 0.08));
+  pointer-events: none;
+}
+
+.workspace-panel h3,
+.page-header h1,
+.page-header h2,
+.page-header p,
+.highlight-card p {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.eyebrow {
+  margin: 0 0 6px 0;
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand-2);
+  font-weight: 700;
 }
 
 .title {
-  font-size: 1.85rem;
-  font-weight: 750;
+  font-size: 2.3rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   margin: 0;
 }
 
 .sub {
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 8px;
   margin-bottom: 0;
+  max-width: 62ch;
+  line-height: 1.6;
+}
+
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.provider-pill {
+  border: 1px solid rgba(120, 230, 216, 0.24);
+  color: #dffcf9;
+  background: rgba(23, 196, 181, 0.12);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.status-badge.tone-success {
+  background: rgba(67, 211, 158, 0.12);
+  color: #d9fff1;
+}
+
+.status-badge.tone-danger {
+  background: rgba(255, 124, 112, 0.12);
+  color: #ffe1dd;
+}
+
+.status-badge.tone-warn {
+  background: rgba(255, 184, 77, 0.14);
+  color: #fff0d3;
+}
+
+.status-dot,
+.live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 14px currentColor;
 }
 
 .instruction-panel {
   border: 1px solid var(--line);
-  background: rgba(14, 21, 54, 0.7);
-  border-radius: 14px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  background: rgba(12, 23, 32, 0.78);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
 }
 
 .instruction-title {
-  margin: 0 0 6px 0;
-  font-size: 0.98rem;
+  margin: 0 0 10px 0;
+  font-size: 1rem;
   font-weight: 700;
-  color: #dfe7ff;
+  color: #dffcf9;
 }
 
 .instruction-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
 }
 
 .instruction-item {
-  border: 1px solid rgba(132, 146, 255, 0.28);
-  border-radius: 10px;
-  padding: 8px 9px;
-  background: rgba(9, 16, 42, 0.65);
+  border: 1px solid rgba(132, 166, 189, 0.18);
+  border-radius: 16px;
+  padding: 12px 12px;
+  background: rgba(17, 31, 42, 0.74);
   color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.35;
+  font-size: 0.88rem;
+  line-height: 1.5;
 }
 
 .instruction-item strong {
-  color: #dce5ff;
+  color: #f0fbff;
 }
 
 .step-card {
   border: 1px solid var(--line);
   background: var(--surface);
-  backdrop-filter: blur(4px);
-  border-radius: 16px;
-  padding: 12px 14px;
-  box-shadow: 0 14px 30px rgba(3, 8, 26, 0.28);
+  backdrop-filter: blur(12px);
+  border-radius: 22px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
 }
 
 .section-note {
   color: var(--muted);
-  font-size: 0.93rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
 .chat-wrap {
   border: 1px solid var(--line);
   background: var(--surface-2);
-  border-radius: 16px;
-  padding: 10px 12px;
-  box-shadow: 0 14px 30px rgba(3, 8, 26, 0.3);
+  border-radius: 22px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
 }
 
 .pill {
   display: inline-block;
   margin-right: 8px;
   margin-top: 6px;
-  padding: 5px 10px;
+  padding: 6px 11px;
   border-radius: 999px;
-  border: 1px solid rgba(130, 146, 255, 0.42);
-  background: rgba(66, 88, 214, 0.22);
-  color: #d9e2ff;
+  border: 1px solid rgba(120, 230, 216, 0.28);
+  background: rgba(23, 196, 181, 0.12);
+  color: #dcfaf7;
   font-size: 0.82rem;
 }
 
 .stButton > button,
 .stDownloadButton > button,
 .stFormSubmitButton > button {
-  background: linear-gradient(90deg, var(--brand) 0%, var(--brand-2) 100%) !important;
-  color: #fff !important;
-  border: 1px solid rgba(143, 158, 255, 0.4) !important;
-  border-radius: 10px !important;
+  background: linear-gradient(90deg, #0ea99b 0%, #18c4b6 55%, #67decf 100%) !important;
+  color: #031217 !important;
+  border: 1px solid rgba(123, 236, 224, 0.24) !important;
+  border-radius: 14px !important;
   font-weight: 700 !important;
-  box-shadow: 0 12px 24px rgba(60, 84, 255, 0.3);
+  box-shadow: 0 12px 30px rgba(23, 196, 181, 0.26);
+  min-height: 46px;
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
 }
 
 .stButton > button:hover,
 .stDownloadButton > button:hover,
 .stFormSubmitButton > button:hover {
-  filter: brightness(1.05);
-  transform: translateY(-1px);
+  filter: brightness(1.04);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(23, 196, 181, 0.34);
 }
 
 .stFormSubmitButton > button,
 [data-testid="stSidebar"] .stButton > button {
-  border: 1px solid rgba(177, 190, 255, 0.72) !important;
+  border: 1px solid rgba(123, 236, 224, 0.3) !important;
   box-shadow:
-    0 0 0 1px rgba(108, 128, 255, 0.5) inset,
-    0 0 22px rgba(88, 107, 255, 0.38),
-    0 12px 24px rgba(60, 84, 255, 0.32);
+    0 0 0 1px rgba(120, 230, 216, 0.1) inset,
+    0 0 22px rgba(23, 196, 181, 0.18),
+    0 12px 24px rgba(10, 78, 73, 0.28);
 }
 
 .major-actions {
-  border: 1px dashed rgba(150, 166, 255, 0.5);
-  border-radius: 12px;
-  padding: 8px 10px;
-  margin-top: 8px;
+  border: 1px dashed rgba(132, 166, 189, 0.36);
+  border-radius: 16px;
+  padding: 12px 14px;
+  margin-top: 10px;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.88rem;
+  background: rgba(10, 18, 26, 0.45);
 }
 
 .step-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
+  padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(155, 171, 255, 0.56);
-  background: rgba(64, 85, 215, 0.24);
-  color: #e2e9ff;
+  border: 1px solid rgba(120, 230, 216, 0.28);
+  background: rgba(23, 196, 181, 0.12);
+  color: #dffcf9;
   font-size: 0.82rem;
   font-weight: 700;
 }
@@ -417,9 +617,9 @@ st.markdown(
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 1px solid rgba(183, 194, 255, 0.72);
-  background: rgba(80, 102, 255, 0.45);
-  color: #ffffff;
+  border: 1px solid rgba(120, 230, 216, 0.32);
+  background: rgba(23, 196, 181, 0.16);
+  color: #dffcf9;
   font-size: 0.74rem;
   line-height: 1;
 }
@@ -428,9 +628,10 @@ div[data-baseweb="input"] > div,
 div[data-baseweb="select"] > div,
 div[data-baseweb="textarea"] > div,
 div[data-testid="stFileUploaderDropzone"] {
-  background: rgba(8, 14, 36, 0.85) !important;
-  border: 1px solid rgba(124, 139, 235, 0.36) !important;
-  border-radius: 10px !important;
+  background: rgba(10, 19, 28, 0.9) !important;
+  border: 1px solid rgba(132, 166, 189, 0.22) !important;
+  border-radius: 14px !important;
+  min-height: 48px;
 }
 
 div[data-baseweb="input"] input,
@@ -439,28 +640,208 @@ textarea {
   color: var(--ink) !important;
 }
 
+textarea {
+  line-height: 1.55 !important;
+}
+
 label, p, h1, h2, h3, h4, h5, h6, .stCaption, .stMarkdown {
   color: var(--ink) !important;
 }
 
 div[data-testid="stMetric"] {
-  background: rgba(10, 16, 44, 0.7);
+  background: rgba(12, 23, 32, 0.78);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 8px 10px;
+  border-radius: 16px;
+  padding: 12px 14px;
 }
 
 button[data-baseweb="tab"] {
   color: var(--muted) !important;
+  font-weight: 600 !important;
+  gap: 6px;
 }
 
 button[data-baseweb="tab"][aria-selected="true"] {
   border-bottom: 2px solid var(--brand) !important;
-  color: #dce4ff !important;
+  color: #ecfbfa !important;
 }
 
 div[data-testid="stFileUploaderDropzone"] * {
   color: var(--muted) !important;
+}
+
+div[data-testid="stFileUploaderDropzone"] {
+  padding: 18px 14px !important;
+}
+
+[data-testid="stChatMessage"] {
+  border: 1px solid rgba(132, 166, 189, 0.18);
+  border-radius: 18px;
+  background: rgba(12, 23, 32, 0.72);
+}
+
+[data-testid="stExpander"] {
+  border: 1px solid rgba(132, 166, 189, 0.18) !important;
+  border-radius: 16px !important;
+  background: rgba(12, 23, 32, 0.6) !important;
+}
+
+[data-testid="stNotification"] {
+  border-radius: 16px !important;
+}
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: 12px;
+  margin: 14px 0 12px 0;
+}
+
+.stat-tile {
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  padding: 14px 14px;
+  background: linear-gradient(160deg, rgba(12, 23, 32, 0.86), rgba(18, 33, 45, 0.84));
+  box-shadow: var(--shadow);
+}
+
+.stat-tile.tone-success {
+  border-color: rgba(67, 211, 158, 0.22);
+}
+
+.stat-tile.tone-warn {
+  border-color: rgba(255, 184, 77, 0.24);
+}
+
+.stat-tile.tone-danger {
+  border-color: rgba(255, 124, 112, 0.22);
+}
+
+.stat-label,
+.summary-key,
+.signal-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.stat-value,
+.summary-value {
+  margin: 8px 0 4px 0;
+  font-size: 1.16rem;
+  font-weight: 700;
+  color: #f3fffd;
+}
+
+.stat-caption,
+.summary-footer,
+.signal-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.signal-panel {
+  margin: 10px 0 14px 0;
+}
+
+.signal-header h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.1rem;
+}
+
+.signal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.signal-card {
+  border: 1px solid rgba(132, 166, 189, 0.18);
+  border-radius: 16px;
+  background: rgba(12, 23, 32, 0.68);
+  padding: 14px 14px;
+}
+
+.selection-summary {
+  margin: 14px 0 10px 0;
+  border: 1px solid rgba(132, 166, 189, 0.18);
+  border-radius: 18px;
+  background: rgba(10, 18, 26, 0.58);
+  padding: 14px 14px;
+}
+
+.selection-summary-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #defcf8;
+  margin-bottom: 12px;
+}
+
+.selection-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.summary-segment {
+  border-radius: 14px;
+  padding: 12px 12px;
+  background: rgba(17, 31, 42, 0.78);
+  border: 1px solid rgba(132, 166, 189, 0.14);
+}
+
+.highlight-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 18px 18px;
+  background: linear-gradient(155deg, rgba(13, 25, 35, 0.95) 0%, rgba(16, 30, 41, 0.92) 100%);
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.highlight-body {
+  position: relative;
+  z-index: 1;
+  font-size: 1rem;
+  line-height: 1.75;
+  color: #eef9ff;
+}
+
+.highlight-meta {
+  position: relative;
+  z-index: 1;
+  margin: 14px 0 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.assistant-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+@media (max-width: 980px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .title {
+    font-size: 1.9rem;
+  }
+
+  .block-container {
+    padding-top: 0.75rem;
+  }
 }
 </style>
 """,
@@ -470,7 +851,16 @@ div[data-testid="stFileUploaderDropzone"] * {
 base_url = _normalize_base_url(DEFAULT_BACKEND_URL)
 
 with st.sidebar:
-    st.markdown("### Workspace")
+    st.markdown(
+        """
+<div class="workspace-panel">
+  <p class="eyebrow">Control Center</p>
+  <h3 style="margin:0 0 8px 0;">Workspace Settings</h3>
+  <p class="assistant-note" style="margin-top:0;">Keep backend access, runtime auth, and reset controls in one place.</p>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
     app_access_token = st.text_input(
         "App Access Token (optional)",
         value=DEFAULT_APP_ACCESS_TOKEN,
@@ -479,10 +869,16 @@ with st.sidebar:
     )
     health = _fetch_health(base_url, app_access_token)
     if health:
-        st.success("Backend connected")
+        st.markdown(
+            '<div class="status-badge tone-success"><span class="status-dot"></span>Backend Connected</div>',
+            unsafe_allow_html=True,
+        )
         st.caption(f"Max file size: {health.get('max_file_size_mb', '-') } MB")
     else:
-        st.error("Backend not reachable")
+        st.markdown(
+            '<div class="status-badge tone-danger"><span class="status-dot"></span>Backend Offline</div>',
+            unsafe_allow_html=True,
+        )
         st.caption("Run API: `uvicorn api:app --reload --port 8000`")
 
     st.code(base_url, language="text")
@@ -509,19 +905,82 @@ suggested_models: Dict[str, List[str]] = provider_config.get(
     "suggested_models", FALLBACK_PROVIDER_CONFIG["suggested_models"]
 )
 
+provider_pills = "".join(
+    f'<span class="provider-pill">{_html_text(PROVIDER_DISPLAY_LABELS.get(provider, provider.title()))}</span>'
+    for provider in providers
+)
+backend_tone = "success" if health else "danger"
+backend_label = "Realtime backend healthy" if health else "Backend check required"
+
 st.markdown(
-    """
+    f"""
 <div class="page-header">
-  <p class="title">Chat with your document</p>
-  <p class="sub">Run specialized agents first, then continue with multi-turn follow-up chat for deeper answers.</p>
+  <div class="hero-grid">
+    <div>
+      <p class="eyebrow">AI Workbench</p>
+      <p class="title">Document intelligence and structured data Q&A in one sharp workspace.</p>
+      <p class="sub">Run specialized agents, review generated insights, and move into follow-up chat or SQL-backed analysis without context switching.</p>
+    </div>
+    <div class="hero-side">
+      <div class="status-badge tone-{backend_tone}"><span class="status-dot"></span>{backend_label}</div>
+      <div class="provider-pills">{provider_pills}</div>
+    </div>
+  </div>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
+_render_stat_strip(
+    [
+        {
+            "label": "Providers",
+            "value": str(len(providers)),
+            "caption": "Runtime-swappable LLM backends",
+            "tone": "success",
+        },
+        {
+            "label": "Document Chat",
+            "value": "Ready" if st.session_state.get("analysis_source_file_bytes") else "Idle",
+            "caption": "Persistent context after analysis",
+            "tone": "success" if st.session_state.get("analysis_source_file_bytes") else "neutral",
+        },
+        {
+            "label": "Text-to-SQL",
+            "value": "Available",
+            "caption": "File upload and live database modes",
+            "tone": "warn",
+        },
+        {
+            "label": "Backend",
+            "value": "Online" if health else "Offline",
+            "caption": "Health-checked from the UI",
+            "tone": backend_tone,
+        },
+    ]
+)
+
 tab_doc, tab_sql = st.tabs(["Document Assistant", "Structured Data Q&A"])
 
 with tab_doc:
+    _render_signal_panel(
+        "Document Flow",
+        "A focused workflow from upload to conversation",
+        [
+            {
+                "title": "1. Analyze",
+                "body": "Run the summary, action, and risk agents once against the uploaded document.",
+            },
+            {
+                "title": "2. Review",
+                "body": "Scan structured outputs and download the JSON when you need to share or archive it.",
+            },
+            {
+                "title": "3. Continue",
+                "body": "Ask follow-up questions in persistent chat without losing the original document context.",
+            },
+        ],
+    )
     st.markdown(
         """
 <div class="instruction-panel">
@@ -583,6 +1042,17 @@ with tab_doc:
             help="Allowed formats: TXT, PDF, DOCX",
             key="analysis_file_uploader",
         )
+
+    selected_analysis_model = (custom_model or selected_model or "").strip()
+    _render_selection_summary(
+        "Live document run configuration",
+        [
+            {"label": "Provider", "value": PROVIDER_DISPLAY_LABELS.get(selected_provider, selected_provider)},
+            {"label": "Model", "value": selected_analysis_model or "Choose a model"},
+            {"label": "File", "value": uploaded_file.name if uploaded_file else "No file selected"},
+        ],
+        footer="The model updates as soon as the provider changes. Override only when you need a custom model ID.",
+    )
 
     st.markdown(
         '<div class="step-badge"><span class="dot">1</span>Primary action: Analyze Document</div>',
@@ -675,10 +1145,33 @@ with tab_doc:
     analysis = st.session_state.get("analysis_result")
     if analysis:
         st.markdown("### Step 2. Review Analysis")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Summary", "Ready")
-        m2.metric("Action Items", len(analysis.get("action_items", [])))
-        m3.metric("Risks / Issues", len(analysis.get("risks_and_open_issues", [])))
+        _render_stat_strip(
+            [
+                {
+                    "label": "Summary",
+                    "value": "Ready",
+                    "caption": "Executive readout generated",
+                    "tone": "success",
+                },
+                {
+                    "label": "Action Items",
+                    "value": str(len(analysis.get("action_items", []))),
+                    "caption": "Operational tasks extracted",
+                    "tone": "warn",
+                },
+                {
+                    "label": "Risks / Issues",
+                    "value": str(len(analysis.get("risks_and_open_issues", []))),
+                    "caption": "Potential blockers surfaced",
+                    "tone": "danger",
+                },
+            ]
+        )
+        _render_highlight_card(
+            "Executive summary",
+            analysis.get("summary", "No summary returned."),
+            meta="Use this as the fastest high-level read before diving into actions or risks.",
+        )
 
         tab_summary, tab_actions, tab_risks, tab_json = st.tabs(
             ["Summary", "Action Items", "Risks", "Raw JSON"]
@@ -735,7 +1228,24 @@ with tab_doc:
             st.session_state["doc_chat_threads"] = threads
         messages = threads.get(doc_id, [])
 
-        st.caption(f"Active document: `{file_name}`")
+        _render_selection_summary(
+            "Active chat context",
+            [
+                {"label": "Document", "value": file_name},
+                {
+                    "label": "Provider",
+                    "value": PROVIDER_DISPLAY_LABELS.get(
+                        st.session_state.get("analysis_selected_provider", ""),
+                        st.session_state.get("analysis_selected_provider", "") or "Not set",
+                    ),
+                },
+                {
+                    "label": "Messages",
+                    "value": str(len(messages)),
+                },
+            ],
+            footer="Your chat thread stays attached to the analyzed file so follow-up questions can reuse earlier context.",
+        )
         chat_controls = st.columns([1, 3], gap="large")
         with chat_controls[0]:
             st.markdown(
@@ -870,6 +1380,24 @@ with tab_doc:
         st.info("Run document analysis first to enable follow-up chat.")
 
 with tab_sql:
+    _render_signal_panel(
+        "Structured Data Flow",
+        "Designed for fast question-to-query iteration",
+        [
+            {
+                "title": "1. Pick a source",
+                "body": "Switch between uploaded spreadsheets and live database connections without leaving the page.",
+            },
+            {
+                "title": "2. Ask clearly",
+                "body": "Use one measurable question so the generated SQL and answer stay easy to validate.",
+            },
+            {
+                "title": "3. Inspect output",
+                "body": "Review the SQL, resulting rows, and any warnings before sharing the answer downstream.",
+            },
+        ],
+    )
     st.markdown("### Structured Data Q&A (Text-to-SQL)")
     st.caption(
         "Use CSV/XLSX upload or a live database connection, ask a question, and get SQL + answer."
@@ -956,6 +1484,18 @@ with tab_sql:
                 key="sql_db_tables",
             )
 
+    sql_model_preview = (sql_custom_model or sql_selected_model or "").strip()
+    source_preview = "CSV/XLSX upload" if sql_source_mode == "File Upload" else "Live database connection"
+    _render_selection_summary(
+        "Live SQL run configuration",
+        [
+            {"label": "Source", "value": source_preview},
+            {"label": "Provider", "value": PROVIDER_DISPLAY_LABELS.get(sql_provider, sql_provider)},
+            {"label": "Model", "value": sql_model_preview or "Choose a model"},
+        ],
+        footer="Use the override field only when you need a provider-specific model ID outside the suggested list.",
+    )
+
     st.markdown(
         '<div class="step-badge"><span class="dot">3</span>Primary action: Run Text-to-SQL</div>',
         unsafe_allow_html=True,
@@ -1034,6 +1574,28 @@ with tab_sql:
         st.markdown("### Text-to-SQL Results")
         source_type = sql_result.get("source_type", "file")
         source_name = sql_result.get("source_name", "")
+        _render_stat_strip(
+            [
+                {
+                    "label": "Source Type",
+                    "value": source_type.title(),
+                    "caption": "Execution mode used for this answer",
+                    "tone": "success",
+                },
+                {
+                    "label": "Rows Returned",
+                    "value": str(len(sql_result.get("rows", []))),
+                    "caption": "Preview rows available in the UI",
+                    "tone": "warn",
+                },
+                {
+                    "label": "Warnings",
+                    "value": str(len(sql_result.get("warnings", []))),
+                    "caption": "Review before acting on the result",
+                    "tone": "danger" if sql_result.get("warnings") else "success",
+                },
+            ]
+        )
         if source_name:
             st.caption(f"Source: {source_type} ({source_name})")
 
@@ -1041,7 +1603,11 @@ with tab_sql:
         if tables:
             st.caption("Tables used: " + ", ".join(tables))
 
-        st.write(sql_result.get("answer", "No answer returned."))
+        _render_highlight_card(
+            "Answer",
+            sql_result.get("answer", "No answer returned."),
+            meta="Review the generated SQL and the returned rows together before taking action.",
+        )
         st.markdown("**Generated SQL**")
         st.code(sql_result.get("sql", ""), language="sql")
 
