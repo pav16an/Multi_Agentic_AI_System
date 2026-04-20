@@ -129,6 +129,48 @@ def _fetch_health(base_url: str, app_access_token: str) -> Optional[Dict[str, ob
     return None
 
 
+def _provider_models(
+    provider: str,
+    suggested_models: Dict[str, List[str]],
+    default_models: Dict[str, str],
+) -> tuple[List[str], str]:
+    models = list(suggested_models.get(provider, []))
+    default_model = default_models.get(provider, "")
+    if default_model and default_model not in models:
+        models = [default_model, *models]
+    return models, default_model
+
+
+def _sync_provider_model_state(prefix: str, provider: str) -> None:
+    last_provider_key = f"{prefix}_provider_last"
+    if st.session_state.get(last_provider_key) == provider:
+        return
+
+    st.session_state.pop(f"{prefix}_model", None)
+    st.session_state.pop(f"{prefix}_model_text", None)
+    st.session_state[f"{prefix}_custom_model"] = ""
+    st.session_state[last_provider_key] = provider
+
+
+def _render_model_selector(
+    prefix: str,
+    provider: str,
+    suggested_models: Dict[str, List[str]],
+    default_models: Dict[str, str],
+) -> str:
+    models, default_model = _provider_models(provider, suggested_models, default_models)
+    if models:
+        model_key = f"{prefix}_model"
+        if st.session_state.get(model_key) not in models:
+            st.session_state[model_key] = default_model or models[0]
+        return st.selectbox("Suggested Model", options=models, key=model_key)
+
+    model_key = f"{prefix}_model_text"
+    if model_key not in st.session_state:
+        st.session_state[model_key] = default_model or ""
+    return st.text_input("Model", key=model_key)
+
+
 def _ensure_state() -> None:
     defaults = {
         "analysis_result": None,
@@ -502,57 +544,55 @@ with tab_doc:
         unsafe_allow_html=True,
     )
 
-    with st.form("analysis_form", clear_on_submit=False):
-        top = st.columns([1, 1, 1], gap="large")
-        with top[0]:
-            selected_provider = st.selectbox(
-                "Provider",
-                options=providers,
-                key="analysis_provider",
-                format_func=lambda p: PROVIDER_DISPLAY_LABELS.get(str(p), str(p)),
-            )
-        with top[1]:
-            models = suggested_models.get(selected_provider, [])
-            default_model = default_models.get(selected_provider, "")
-            if default_model and default_model not in models:
-                models = [default_model] + models
-            if models:
-                selected_model = st.selectbox("Suggested Model", options=models, key="analysis_model")
-            else:
-                selected_model = st.text_input("Model", value=default_model or "", key="analysis_model_text")
-        with top[2]:
-            custom_model = st.text_input(
-                "Model Override (optional)",
-                value=selected_model,
-                help="Use only for custom model IDs.",
-                key="analysis_custom_model",
-            )
-
-        bottom = st.columns([1.3, 1], gap="large")
-        with bottom[0]:
-            user_api_key = st.text_input(
-                "Provider API Key",
-                type="password",
-                help="Used only for request processing.",
-                key="analysis_api_key_input",
-            )
-        with bottom[1]:
-            uploaded_file = st.file_uploader(
-                "Upload Document",
-                type=["txt", "pdf", "docx"],
-                help="Allowed formats: TXT, PDF, DOCX",
-                key="analysis_file_uploader",
-            )
-
-        st.markdown(
-            '<div class="step-badge"><span class="dot">1</span>Primary action: Analyze Document</div>',
-            unsafe_allow_html=True,
+    top = st.columns([1, 1, 1], gap="large")
+    with top[0]:
+        selected_provider = st.selectbox(
+            "Provider",
+            options=providers,
+            key="analysis_provider",
+            format_func=lambda p: PROVIDER_DISPLAY_LABELS.get(str(p), str(p)),
         )
-        analyze_clicked = st.form_submit_button(
-            "Analyze Document",
-            type="primary",
-            use_container_width=True,
+    _sync_provider_model_state("analysis", selected_provider)
+    with top[1]:
+        selected_model = _render_model_selector(
+            "analysis",
+            selected_provider,
+            suggested_models,
+            default_models,
         )
+    with top[2]:
+        custom_model = st.text_input(
+            "Model Override (optional)",
+            help="Use only for custom model IDs.",
+            key="analysis_custom_model",
+            placeholder=selected_model,
+        )
+
+    bottom = st.columns([1.3, 1], gap="large")
+    with bottom[0]:
+        user_api_key = st.text_input(
+            "Provider API Key",
+            type="password",
+            help="Used only for request processing.",
+            key="analysis_api_key_input",
+        )
+    with bottom[1]:
+        uploaded_file = st.file_uploader(
+            "Upload Document",
+            type=["txt", "pdf", "docx"],
+            help="Allowed formats: TXT, PDF, DOCX",
+            key="analysis_file_uploader",
+        )
+
+    st.markdown(
+        '<div class="step-badge"><span class="dot">1</span>Primary action: Analyze Document</div>',
+        unsafe_allow_html=True,
+    )
+    analyze_clicked = st.button(
+        "Analyze Document",
+        type="primary",
+        use_container_width=True,
+    )
 
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown(
@@ -855,86 +895,76 @@ with tab_sql:
         key="sql_source_mode",
     )
 
-    with st.form("sql_form", clear_on_submit=False):
-        left, right = st.columns([1.25, 1], gap="large")
-        structured_file = None
-        db_include_tables = ""
-        db_type = ""
-        db_host = ""
-        db_port = ""
-        db_name = ""
-        db_user = ""
-        db_password = ""
+    left, right = st.columns([1.25, 1], gap="large")
+    structured_file = None
+    db_include_tables = ""
+    db_type = ""
+    db_host = ""
+    db_port = ""
+    db_name = ""
+    db_user = ""
+    db_password = ""
 
-        with left:
-            sql_provider = st.selectbox(
-                "Provider",
-                options=providers,
-                key="sql_provider",
-                format_func=lambda p: PROVIDER_DISPLAY_LABELS.get(str(p), str(p)),
-            )
-            sql_models = suggested_models.get(sql_provider, [])
-            sql_default_model = default_models.get(sql_provider, "")
-            if sql_default_model and sql_default_model not in sql_models:
-                sql_models = [sql_default_model] + sql_models
-            if sql_models:
-                sql_selected_model = st.selectbox(
-                    "Suggested Model",
-                    options=sql_models,
-                    key="sql_model",
-                )
-            else:
-                sql_selected_model = st.text_input(
-                    "Model",
-                    value=sql_default_model or "",
-                    key="sql_model_text",
-                )
-            sql_custom_model = st.text_input(
-                "Model Override (optional)",
-                value=sql_selected_model,
-                key="sql_custom_model",
-            )
-            sql_question = st.text_area(
-                "Question",
-                placeholder="e.g., Top 5 customers by total revenue",
-                key="sql_question",
-            )
-
-        with right:
-            sql_api_key = st.text_input(
-                "Provider API Key",
-                type="password",
-                key="sql_api_key_input",
-            )
-            if sql_source_mode == "File Upload":
-                structured_file = st.file_uploader(
-                    "Upload CSV/XLSX",
-                    type=["csv", "xlsx"],
-                    key="sql_file_uploader",
-                )
-            else:
-                db_type = st.selectbox("DB Type", options=["postgresql", "mysql"], key="sql_db_type")
-                default_port = "5432" if db_type == "postgresql" else "3306"
-                db_host = st.text_input("Host", placeholder="localhost", key="sql_db_host")
-                db_port = st.text_input("Port", value=default_port, key="sql_db_port")
-                db_name = st.text_input("Database", placeholder="sales_db", key="sql_db_name")
-                db_user = st.text_input("Username", placeholder="db_user", key="sql_db_user")
-                db_password = st.text_input("Password", type="password", key="sql_db_password")
-                db_include_tables = st.text_input(
-                    "Include Tables (optional)",
-                    placeholder="orders, customers",
-                    key="sql_db_tables",
-                )
-
-        st.markdown(
-            '<div class="step-badge"><span class="dot">3</span>Primary action: Run Text-to-SQL</div>',
-            unsafe_allow_html=True,
+    with left:
+        sql_provider = st.selectbox(
+            "Provider",
+            options=providers,
+            key="sql_provider",
+            format_func=lambda p: PROVIDER_DISPLAY_LABELS.get(str(p), str(p)),
         )
-        sql_clicked = st.form_submit_button(
-            "Run Text-to-SQL",
-            type="primary",
-            use_container_width=True,
+        _sync_provider_model_state("sql", sql_provider)
+        sql_selected_model = _render_model_selector(
+            "sql",
+            sql_provider,
+            suggested_models,
+            default_models,
         )
+        sql_custom_model = st.text_input(
+            "Model Override (optional)",
+            key="sql_custom_model",
+            placeholder=sql_selected_model,
+        )
+        sql_question = st.text_area(
+            "Question",
+            placeholder="e.g., Top 5 customers by total revenue",
+            key="sql_question",
+        )
+
+    with right:
+        sql_api_key = st.text_input(
+            "Provider API Key",
+            type="password",
+            key="sql_api_key_input",
+        )
+        if sql_source_mode == "File Upload":
+            structured_file = st.file_uploader(
+                "Upload CSV/XLSX",
+                type=["csv", "xlsx"],
+                key="sql_file_uploader",
+            )
+        else:
+            db_type = st.selectbox("DB Type", options=["postgresql", "mysql"], key="sql_db_type")
+            default_port = "5432" if db_type == "postgresql" else "3306"
+            db_host = st.text_input("Host", placeholder="localhost", key="sql_db_host")
+            db_port = st.text_input("Port", value=default_port, key="sql_db_port")
+            db_name = st.text_input("Database", placeholder="sales_db", key="sql_db_name")
+            db_user = st.text_input("Username", placeholder="db_user", key="sql_db_user")
+            db_password = st.text_input("Password", type="password", key="sql_db_password")
+            db_include_tables = st.text_input(
+                "Include Tables (optional)",
+                placeholder="orders, customers",
+                key="sql_db_tables",
+            )
+
+    st.markdown(
+        '<div class="step-badge"><span class="dot">3</span>Primary action: Run Text-to-SQL</div>',
+        unsafe_allow_html=True,
+    )
+    sql_clicked = st.button(
+        "Run Text-to-SQL",
+        type="primary",
+        use_container_width=True,
+    )
 
     if sql_clicked:
         if not sql_api_key.strip():
